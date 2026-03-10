@@ -14,6 +14,7 @@ SAT_FILE_SD="$SDROOT/saturation.cfg"
 SAT_FILE_DE="$MODPATH/saturation.cfg"
 OLD_SAT_FILE="/data/adb/modules/set_saturation_boot/saturation.cfg"
 DEFAULT_SAT="1.0"
+CFG_MARKER="# set_saturation_boot"
 
 ui_print "- Setting script permissions..."
 set_perm "$MODPATH/service.sh" 0 0 0755
@@ -34,14 +35,15 @@ fi
 if [ -f "$SAT_FILE_SD" ]; then
   ui_print "- Found existing saturation.cfg (leaving as-is): $SAT_FILE_SD"
 else
-  if [ -d "$SDROOT" ]; then
+  if [ -d "$SDROOT" ] && [ -w "$SDROOT" ]; then
     ui_print "- Creating user config: $SAT_FILE_SD (default $DEFAULT_SAT)"
-    mkdir -p "$(dirname "$SAT_FILE_SD")" 2>/dev/null
-    echo "$DEFAULT_SAT" > "$SAT_FILE_SD" 2>/dev/null
+    {
+      echo "$DEFAULT_SAT"
+      echo "$CFG_MARKER"
+    } > "$SAT_FILE_SD" 2>/dev/null
     chmod 0644 "$SAT_FILE_SD" 2>/dev/null
-    chown 1023:1023 "$SAT_FILE_SD" 2>/dev/null
   else
-    ui_print "- Shared storage not available during install; DE config will be used."
+    ui_print "- Shared storage not writable during install; DE config will be used."
   fi
 fi
 

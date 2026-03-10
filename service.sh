@@ -45,8 +45,15 @@ read_first_line_trim() {
 }
 
 ensure_de_file() {
-  # Ensure DE config exists so we can apply early even before unlock
+  # Ensure DE config exists and contains a valid value so we can apply early even before unlock.
   if [ ! -s "$SAT_FILE_DE" ]; then
+    echo "$DEFAULT_SAT" > "$SAT_FILE_DE" 2>/dev/null
+    chmod 0600 "$SAT_FILE_DE" 2>/dev/null
+    return 0
+  fi
+
+  edf_val="$(read_first_line_trim "$SAT_FILE_DE")"
+  if [ -z "$edf_val" ] || ! is_valid_float "$edf_val" || ! in_range "$edf_val"; then
     echo "$DEFAULT_SAT" > "$SAT_FILE_DE" 2>/dev/null
     chmod 0600 "$SAT_FILE_DE" 2>/dev/null
   fi
@@ -55,15 +62,15 @@ ensure_de_file() {
 wait_surfaceflinger() {
   # Wait until SurfaceFlinger is running.
   # No fixed delay; we just wait for readiness.
-  local i=0
-  local max=300  # 300 * 0.1s = 30s max
+  wf_i=0
+  wf_max=300  # 300 * 0.1s = 30s max
 
-  while [ "$i" -lt "$max" ]; do
+  while [ "$wf_i" -lt "$wf_max" ]; do
     if [ "$(getprop init.svc.surfaceflinger)" = "running" ]; then
       return 0
     fi
     sleep 0.1
-    i=$((i+1))
+    wf_i=$((wf_i+1))
   done
   return 1
 }
@@ -76,17 +83,16 @@ apply_value() {
 
 apply_from_file() {
   # Validate and apply saturation from a file
-  local file="$1"
-  [ -s "$file" ] || return 1
+  af_file="$1"
+  [ -s "$af_file" ] || return 1
 
-  local val
-  val="$(read_first_line_trim "$file")"
-  [ -n "$val" ] || return 1
+  af_val="$(read_first_line_trim "$af_file")"
+  [ -n "$af_val" ] || return 1
 
-  is_valid_float "$val" || return 1
-  in_range "$val" || return 1
+  is_valid_float "$af_val" || return 1
+  in_range "$af_val" || return 1
 
-  apply_value "$val" || return 1
+  apply_value "$af_val" || return 1
   return 0
 }
 
@@ -96,13 +102,12 @@ sync_sd_to_de_if_possible() {
   [ -r "$SAT_FILE_SD" ] || return 1
   [ -s "$SAT_FILE_SD" ] || return 1
 
-  local v
-  v="$(read_first_line_trim "$SAT_FILE_SD")"
-  [ -n "$v" ] || return 1
-  is_valid_float "$v" || return 1
-  in_range "$v" || return 1
+  sd_v="$(read_first_line_trim "$SAT_FILE_SD")"
+  [ -n "$sd_v" ] || return 1
+  is_valid_float "$sd_v" || return 1
+  in_range "$sd_v" || return 1
 
-  echo "$v" > "$SAT_FILE_DE" 2>/dev/null
+  echo "$sd_v" > "$SAT_FILE_DE" 2>/dev/null
   chmod 0600 "$SAT_FILE_DE" 2>/dev/null
   return 0
 }
@@ -118,10 +123,16 @@ fi
 # Try to sync from shared storage ASAP (some devices allow it early),
 # otherwise keep checking for a while until it becomes readable post-unlock.
 # This does NOT block applying early saturation, it only improves future boots.
-# Wait for boot to complete before polling for user config
-while [ "$(getprop sys.boot_completed)" != "1" ]; do
+# Wait for boot to complete before polling for user config.
+# Timeout avoids waiting forever on ROMs that never report boot_completed=1.
+i=0
+max_wait_boot=120
+while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt "$max_wait_boot" ]; do
   sleep 1
+  i=$((i+1))
 done
+
+[ "$i" -ge "$max_wait_boot" ] && exit 0
 
 i=0
 max=60  # 60 * 2s = 2 minutes
