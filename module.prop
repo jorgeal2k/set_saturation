@@ -1,6 +1,6 @@
 id=set_saturation_boot
-name=Set Saturation after boot
-version=1.01
-versionCode=101
+name=Set Saturation at boot
+version=1.02
+versionCode=102
 author=jorge2k
-description=Applies SurfaceFlinger color saturation at boot (config: /sdcard/saturation.cfg).
+description=Applies SurfaceFlinger color saturation at boot using /data/adb/modules/set_saturation_boot/saturation.cfg as the primary config, with optional sync from /sdcard/saturation.cfg after boot.
