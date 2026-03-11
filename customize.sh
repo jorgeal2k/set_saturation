@@ -46,6 +46,35 @@ write_default_de_config() {
   return 1
 }
 
+copy_to_module_config() {
+  src="$1"
+
+  if cp -f "$src" "$SAT_FILE_DE"; then
+    set_perm "$SAT_FILE_DE" 0 0 0600
+    return 0
+  fi
+
+  ui_print "! Failed to update module config from: $src"
+  return 1
+}
+
+copy_to_shared_config() {
+  src="$1"
+
+  if [ ! -d "$SDROOT" ] || [ ! -w "$SDROOT" ]; then
+    ui_print "- Shared storage not writable during install; keeping module config only."
+    return 1
+  fi
+
+  if cp -f "$src" "$SAT_FILE_SD"; then
+    chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
+    return 0
+  fi
+
+  ui_print "! Failed to update shared config: $SAT_FILE_SD"
+  return 1
+}
+
 set_installed_permissions() {
   ui_print "- Setting script permissions..."
   set_perm "$MODPATH/service.sh" 0 0 0755
@@ -54,35 +83,50 @@ set_installed_permissions() {
 
 set_installed_permissions
 
-# Create DE config (recovery-proof + works before first unlock)
-if [ -n "$OLD_SAT_FILE" ] && [ -s "$OLD_SAT_FILE" ]; then
-  ui_print "- Found DE config (preserving): $OLD_SAT_FILE"
-  if cp -f "$OLD_SAT_FILE" "$SAT_FILE_DE"; then
-    set_perm "$SAT_FILE_DE" 0 0 0600
+# Sync configs with shared storage priority when both files exist
+if [ -f "$SAT_FILE_SD" ]; then
+  if [ -f "$SAT_FILE_DE" ]; then
+    ui_print "- Found module config: $SAT_FILE_DE"
+    ui_print "- Found shared config (priority): $SAT_FILE_SD"
+  elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
+    ui_print "- Found installed module config: $OLD_SAT_FILE"
+    ui_print "- Found shared config (priority): $SAT_FILE_SD"
   else
-    ui_print "! Failed to preserve old config; creating default."
-    write_default_de_config
+    ui_print "- Found shared config: $SAT_FILE_SD"
+  fi
+
+  if ! copy_to_module_config "$SAT_FILE_SD"; then
+    if [ -f "$SAT_FILE_DE" ]; then
+      ui_print "- Keeping existing module config: $SAT_FILE_DE"
+    elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
+      ui_print "- Restoring installed module config: $OLD_SAT_FILE"
+      copy_to_module_config "$OLD_SAT_FILE" || write_default_de_config
+    else
+      ui_print "- Creating module config (default $DEFAULT_SAT)"
+      write_default_de_config
+    fi
+  fi
+elif [ -f "$SAT_FILE_DE" ]; then
+  ui_print "- Found module config: $SAT_FILE_DE"
+  ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
+  copy_to_shared_config "$SAT_FILE_DE"
+elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
+  ui_print "- Found installed module config: $OLD_SAT_FILE"
+  if copy_to_module_config "$OLD_SAT_FILE"; then
+    ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
+    copy_to_shared_config "$SAT_FILE_DE"
+  else
+    ui_print "- Creating module config (default $DEFAULT_SAT)"
+    if write_default_de_config; then
+      ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
+      copy_to_shared_config "$SAT_FILE_DE"
+    fi
   fi
 else
-  ui_print "- Creating DE config (default $DEFAULT_SAT)"
-  write_default_de_config
-fi
-
-# Create user-facing config on shared storage if possible (best-effort)
-if [ -f "$SAT_FILE_SD" ]; then
-  ui_print "- Found existing saturation.cfg (leaving as-is): $SAT_FILE_SD"
-else
-  if [ -d "$SDROOT" ] && [ -w "$SDROOT" ]; then
-    ui_print "- Creating user config: $SAT_FILE_SD (default $DEFAULT_SAT)"
-    if {
-      echo "$DEFAULT_SAT"
-    } > "$SAT_FILE_SD"; then
-      chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
-    else
-      ui_print "! Failed to create user config: $SAT_FILE_SD"
-    fi
-  else
-    ui_print "- Shared storage not writable during install; DE config will be used."
+  ui_print "- Creating module config (default $DEFAULT_SAT)"
+  if write_default_de_config; then
+    ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
+    copy_to_shared_config "$SAT_FILE_DE"
   fi
 fi
 
