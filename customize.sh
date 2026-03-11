@@ -24,7 +24,6 @@ get_module_id() {
 
 SAT_FILE_DE="$MODPATH/saturation.cfg"
 DEFAULT_SAT="1.0"
-CFG_MARKER="# set_saturation_boot"
 MODULE_PROP="$MODPATH/module.prop"
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
@@ -77,7 +76,6 @@ else
     ui_print "- Creating user config: $SAT_FILE_SD (default $DEFAULT_SAT)"
     if {
       echo "$DEFAULT_SAT"
-      echo "$CFG_MARKER"
     } > "$SAT_FILE_SD"; then
       chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
     else
