@@ -9,13 +9,22 @@
 
 MODDIR="${0%/*}"
 
+resolve_sdroot() {
+  if [ -n "$EXTERNAL_STORAGE" ] && [ -d "$EXTERNAL_STORAGE" ]; then
+    printf '%s\n' "$EXTERNAL_STORAGE"
+  elif [ -d "/data/media/0" ]; then
+    printf '%s\n' "/data/media/0"
+  else
+    printf '%s\n' "/sdcard"
+  fi
+}
+
 # --- Paths ---
 # Root-only, recovery-friendly, FBE-safe config (authoritative)
 SAT_FILE_DE="$MODDIR/saturation.cfg"
 
 # Optional user-facing config (may be unavailable until first unlock on FBE devices)
-SDROOT="/data/media/0"
-[ -d "$SDROOT" ] || SDROOT="/sdcard"
+SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
 
 # --- SurfaceFlinger saturation service call ---
@@ -44,18 +53,38 @@ read_first_line_trim() {
   head -n 1 "$1" 2>/dev/null | tr -d '[:space:]'
 }
 
+write_de_value() {
+  wd_value="$1"
+  wd_tmp="${SAT_FILE_DE}.tmp.$$"
+
+  if ! printf '%s\n' "$wd_value" > "$wd_tmp"; then
+    rm -f "$wd_tmp" 2>/dev/null
+    return 1
+  fi
+
+  if ! chmod 0600 "$wd_tmp" 2>/dev/null; then
+    rm -f "$wd_tmp" 2>/dev/null
+    return 1
+  fi
+
+  if ! mv -f "$wd_tmp" "$SAT_FILE_DE" 2>/dev/null; then
+    rm -f "$wd_tmp" 2>/dev/null
+    return 1
+  fi
+
+  return 0
+}
+
 ensure_de_file() {
   # Ensure DE config exists and contains a valid value so we can apply early even before unlock.
   if [ ! -s "$SAT_FILE_DE" ]; then
-    echo "$DEFAULT_SAT" > "$SAT_FILE_DE" 2>/dev/null
-    chmod 0600 "$SAT_FILE_DE" 2>/dev/null
+    write_de_value "$DEFAULT_SAT"
     return 0
   fi
 
   edf_val="$(read_first_line_trim "$SAT_FILE_DE")"
   if [ -z "$edf_val" ] || ! is_valid_float "$edf_val" || ! in_range "$edf_val"; then
-    echo "$DEFAULT_SAT" > "$SAT_FILE_DE" 2>/dev/null
-    chmod 0600 "$SAT_FILE_DE" 2>/dev/null
+    write_de_value "$DEFAULT_SAT"
   fi
 }
 
@@ -78,7 +107,18 @@ wait_surfaceflinger() {
 apply_value() {
   # Apply saturation via binder service call
   # Returns 0 on success
-  service call "$SF_SERVICE" "$SAT_CODE" f "$1" >/dev/null 2>&1
+  av_i=0
+  av_max=10
+
+  while [ "$av_i" -lt "$av_max" ]; do
+    if service call "$SF_SERVICE" "$SAT_CODE" f "$1" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.2
+    av_i=$((av_i+1))
+  done
+
+  return 1
 }
 
 apply_from_file() {
@@ -107,9 +147,35 @@ sync_sd_to_de_if_possible() {
   is_valid_float "$sd_v" || return 1
   in_range "$sd_v" || return 1
 
-  echo "$sd_v" > "$SAT_FILE_DE" 2>/dev/null
-  chmod 0600 "$SAT_FILE_DE" 2>/dev/null
+  write_de_value "$sd_v" || return 1
   return 0
+}
+
+wait_for_boot_completed() {
+  i=0
+  max_wait_boot=120
+
+  while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt "$max_wait_boot" ]; do
+    sleep 1
+    i=$((i+1))
+  done
+
+  [ "$i" -lt "$max_wait_boot" ]
+}
+
+poll_user_config_sync() {
+  i=0
+  max=60  # 60 * 2s = 2 minutes
+
+  while [ "$i" -lt "$max" ]; do
+    if sync_sd_to_de_if_possible; then
+      # If we successfully synced, also apply the new value immediately (no extra delays).
+      apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
+      break
+    fi
+    sleep 2
+    i=$((i+1))
+  done
 }
 
 # --- Main ---
@@ -125,25 +191,8 @@ fi
 # This does NOT block applying early saturation, it only improves future boots.
 # Wait for boot to complete before polling for user config.
 # Timeout avoids waiting forever on ROMs that never report boot_completed=1.
-i=0
-max_wait_boot=120
-while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt "$max_wait_boot" ]; do
-  sleep 1
-  i=$((i+1))
-done
-
-[ "$i" -ge "$max_wait_boot" ] && exit 0
-
-i=0
-max=60  # 60 * 2s = 2 minutes
-while [ "$i" -lt "$max" ]; do
-  if sync_sd_to_de_if_possible; then
-    # If we successfully synced, also apply the new value immediately (no extra delays).
-    apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
-    break
-  fi
-  sleep 2
-  i=$((i+1))
-done
+if wait_for_boot_completed; then
+  poll_user_config_sync
+fi
 
 exit 0
