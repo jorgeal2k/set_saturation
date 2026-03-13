@@ -42,7 +42,7 @@ DEFAULT_SAT="1.0"
 # --- Helpers ---
 is_valid_float() {
   # Accepts: 1, 1.0, 0.75, 2.00 (no negatives, no exponent)
-  echo "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
+  printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
 }
 
 in_range() {
@@ -94,13 +94,13 @@ wait_surfaceflinger() {
   # Wait until SurfaceFlinger is running.
   # No fixed delay; we just wait for readiness.
   wf_i=0
-  wf_max=300  # 300 * 0.1s = 30s max
+  wf_max=30  # 30 * 1s = 30s max
 
   while [ "$wf_i" -lt "$wf_max" ]; do
     if [ "$(getprop init.svc.surfaceflinger)" = "running" ]; then
       return 0
     fi
-    sleep 0.1
+    sleep 1
     wf_i=$((wf_i+1))
   done
   return 1
@@ -110,13 +110,13 @@ apply_value() {
   # Apply saturation via binder service call
   # Returns 0 on success
   av_i=0
-  av_max=10
+  av_max=5  # 5 * 1s = 5s max
 
   while [ "$av_i" -lt "$av_max" ]; do
     if service call "$SF_SERVICE" "$SAT_CODE" f "$1" >/dev/null 2>&1; then
       return 0
     fi
-    sleep 0.2
+    sleep 1
     av_i=$((av_i+1))
   done
 
@@ -155,7 +155,7 @@ sync_sd_to_de_if_possible() {
 
 wait_for_boot_completed() {
   i=0
-  max_wait_boot=120
+  max_wait_boot=60
 
   while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt "$max_wait_boot" ]; do
     sleep 1
@@ -174,9 +174,13 @@ poll_user_config_sync() {
   max=60  # 60 * 2s = 2 minutes
 
   while [ "$i" -lt "$max" ]; do
+    old_de="$(read_first_line_trim "$SAT_FILE_DE" 2>/dev/null)"
     if sync_sd_to_de_if_possible; then
-      # If we successfully synced, also apply the new value immediately (no extra delays).
-      apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
+      new_de="$(read_first_line_trim "$SAT_FILE_DE" 2>/dev/null)"
+      # Only re-apply if the value actually changed to avoid unnecessary binder calls.
+      if [ "$new_de" != "$old_de" ]; then
+        apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
+      fi
       return 0
     fi
     sleep 2
@@ -199,7 +203,8 @@ ensure_de_file
 
 # Wait until SurfaceFlinger is actually running, then apply immediately.
 if wait_surfaceflinger; then
-  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
+  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1 || \
+    printf '%s\n' "saturation: apply failed at boot" >> "$MODDIR/error.log"
 fi
 
 # Try to sync from shared storage ASAP (some devices allow it early),
