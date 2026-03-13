@@ -8,20 +8,6 @@
 # - Be "recovery-proof": config lives in /data/adb, which is typically available in recovery
 
 MODDIR="${0%/*}"
-LOG_TAG="set_saturation_boot"
-LOG_FILE="$MODDIR/service.log"
-
-timestamp_now() {
-  date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf '%s\n' "unknown-time"
-}
-
-log_msg() {
-  lm_message="$1"
-  lm_timestamp="$(timestamp_now)"
-
-  log -t "$LOG_TAG" "$lm_message" 2>/dev/null
-  printf '%s %s\n' "$lm_timestamp" "$lm_message" >> "$LOG_FILE" 2>/dev/null || :
-}
 
 # Shared storage resolution is duplicated on purpose across lifecycle scripts
 # to avoid coupling boot logic to an extra sourced helper.
@@ -74,19 +60,16 @@ write_de_value() {
   wd_tmp="${SAT_FILE_DE}.tmp.$$"
 
   if ! printf '%s\n' "$wd_value" > "$wd_tmp"; then
-    log_msg "Failed to write temporary DE config: $wd_tmp"
     rm -f "$wd_tmp" 2>/dev/null
     return 1
   fi
 
   if ! chmod 0600 "$wd_tmp" 2>/dev/null; then
-    log_msg "Failed to chmod temporary DE config: $wd_tmp"
     rm -f "$wd_tmp" 2>/dev/null
     return 1
   fi
 
   if ! mv -f "$wd_tmp" "$SAT_FILE_DE" 2>/dev/null; then
-    log_msg "Failed to replace DE config: $SAT_FILE_DE"
     rm -f "$wd_tmp" 2>/dev/null
     return 1
   fi
@@ -97,14 +80,12 @@ write_de_value() {
 ensure_de_file() {
   # Ensure DE config exists and contains a valid value so we can apply early even before unlock.
   if [ ! -s "$SAT_FILE_DE" ]; then
-    log_msg "DE config missing or empty; writing default value $DEFAULT_SAT"
     write_de_value "$DEFAULT_SAT"
     return 0
   fi
 
   edf_val="$(read_first_line_trim "$SAT_FILE_DE")"
   if [ -z "$edf_val" ] || ! is_valid_float "$edf_val" || ! in_range "$edf_val"; then
-    log_msg "DE config invalid ('$edf_val'); restoring default value $DEFAULT_SAT"
     write_de_value "$DEFAULT_SAT"
   fi
 }
@@ -122,7 +103,6 @@ wait_surfaceflinger() {
     sleep 0.1
     wf_i=$((wf_i+1))
   done
-  log_msg "Timed out waiting for SurfaceFlinger"
   return 1
 }
 
@@ -140,7 +120,6 @@ apply_value() {
     av_i=$((av_i+1))
   done
 
-  log_msg "Failed to apply saturation value '$1' via $SF_SERVICE code $SAT_CODE"
   return 1
 }
 
@@ -187,7 +166,6 @@ wait_for_boot_completed() {
     return 0
   fi
 
-  log_msg "Timed out waiting for sys.boot_completed=1"
   return 1
 }
 
@@ -198,27 +176,20 @@ poll_user_config_sync() {
   while [ "$i" -lt "$max" ]; do
     if sync_sd_to_de_if_possible; then
       # If we successfully synced, also apply the new value immediately (no extra delays).
-      if apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1; then
-        log_msg "Synced and applied shared config from $SAT_FILE_SD"
-      else
-        log_msg "Synced shared config from $SAT_FILE_SD but failed to apply it immediately"
-      fi
+      apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
       return 0
     fi
     sleep 2
     i=$((i+1))
   done
 
-  log_msg "Shared config did not become readable in time: $SAT_FILE_SD"
   return 1
 }
 
 sync_shared_config_after_boot_window() {
   # Prefer boot_completed when the ROM reports it, but still keep the sync attempt
   # for the same bounded window on devices where that property is unreliable.
-  if ! wait_for_boot_completed; then
-    log_msg "Continuing shared config polling without boot_completed"
-  fi
+  wait_for_boot_completed || :
 
   poll_user_config_sync
 }

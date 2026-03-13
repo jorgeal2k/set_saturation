@@ -68,8 +68,6 @@ MAX_SAT="2.00"
 MODULE_PROP="$MODPATH/module.prop"
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
-SAT_FILE_SD_OWNER="$SAT_FILE_SD.owner"
-CFG_MARKER="set_saturation_boot"
 MODID=""
 OLD_SAT_FILE=""
 
@@ -86,16 +84,6 @@ write_default_de_config() {
   fi
 
   ui_print "! Failed to write DE config: $SAT_FILE_DE"
-  return 1
-}
-
-write_shared_owner_marker() {
-  if printf '%s\n' "$CFG_MARKER" > "$SAT_FILE_SD_OWNER"; then
-    chmod 0644 "$SAT_FILE_SD_OWNER" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD_OWNER"
-    return 0
-  fi
-
-  ui_print "! Failed to write shared ownership marker: $SAT_FILE_SD_OWNER"
   return 1
 }
 
@@ -131,7 +119,6 @@ copy_to_shared_config() {
 
   if cp -f "$src" "$SAT_FILE_SD"; then
     chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
-    write_shared_owner_marker || :
     return 0
   fi
 
