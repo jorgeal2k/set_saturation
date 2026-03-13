@@ -7,6 +7,8 @@ ui_print " Set Saturation after System boot"
 ui_print "========================================"
 ui_print " "
 
+# Shared storage resolution is duplicated on purpose across lifecycle scripts
+# to avoid introducing a new sourced dependency into the installer path.
 resolve_sdroot() {
   if [ -n "$EXTERNAL_STORAGE" ] && [ -d "$EXTERNAL_STORAGE" ]; then
     printf '%s\n' "$EXTERNAL_STORAGE"
@@ -22,11 +24,52 @@ get_module_id() {
   sed -n 's/^id=//p' "$MODULE_PROP" | head -n 1
 }
 
+read_first_line_trim() {
+  head -n 1 "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+is_valid_float() {
+  printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
+}
+
+in_range() {
+  awk -v x="$1" -v min="$MIN_SAT" -v max="$MAX_SAT" 'BEGIN{ exit !(x>=min && x<=max) }'
+}
+
+config_is_valid() {
+  cfg_path="$1"
+  [ -s "$cfg_path" ] || return 1
+
+  cfg_value="$(read_first_line_trim "$cfg_path")"
+  [ -n "$cfg_value" ] || return 1
+  is_valid_float "$cfg_value" || return 1
+  in_range "$cfg_value" || return 1
+}
+
+report_config_state() {
+  cfg_label="$1"
+  cfg_path="$2"
+
+  [ -f "$cfg_path" ] || return 1
+
+  if config_is_valid "$cfg_path"; then
+    ui_print "- Found $cfg_label config: $cfg_path"
+    return 0
+  fi
+
+  ui_print "! Found invalid $cfg_label config: $cfg_path"
+  return 1
+}
+
 SAT_FILE_DE="$MODPATH/saturation.cfg"
 DEFAULT_SAT="1.0"
+MIN_SAT="0.50"
+MAX_SAT="2.00"
 MODULE_PROP="$MODPATH/module.prop"
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
+SAT_FILE_SD_OWNER="$SAT_FILE_SD.owner"
+CFG_MARKER="set_saturation_boot"
 MODID=""
 OLD_SAT_FILE=""
 
@@ -46,8 +89,23 @@ write_default_de_config() {
   return 1
 }
 
+write_shared_owner_marker() {
+  if printf '%s\n' "$CFG_MARKER" > "$SAT_FILE_SD_OWNER"; then
+    chmod 0644 "$SAT_FILE_SD_OWNER" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD_OWNER"
+    return 0
+  fi
+
+  ui_print "! Failed to write shared ownership marker: $SAT_FILE_SD_OWNER"
+  return 1
+}
+
 copy_to_module_config() {
   src="$1"
+
+  if ! config_is_valid "$src"; then
+    ui_print "! Ignoring invalid config: $src"
+    return 1
+  fi
 
   if cp -f "$src" "$SAT_FILE_DE"; then
     set_perm "$SAT_FILE_DE" 0 0 0600
@@ -61,6 +119,11 @@ copy_to_module_config() {
 copy_to_shared_config() {
   src="$1"
 
+  if ! config_is_valid "$src"; then
+    ui_print "! Not exporting invalid config: $src"
+    return 1
+  fi
+
   if [ ! -d "$SDROOT" ] || [ ! -w "$SDROOT" ]; then
     ui_print "- Shared storage not writable during install; keeping module config only."
     return 1
@@ -68,6 +131,7 @@ copy_to_shared_config() {
 
   if cp -f "$src" "$SAT_FILE_SD"; then
     chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
+    write_shared_owner_marker || :
     return 0
   fi
 
@@ -75,6 +139,30 @@ copy_to_shared_config() {
   return 1
 }
 
+ensure_valid_module_config() {
+  if [ -f "$SAT_FILE_DE" ] && config_is_valid "$SAT_FILE_DE"; then
+    return 0
+  fi
+
+  if [ -f "$SAT_FILE_DE" ]; then
+    ui_print "! Ignoring invalid module config: $SAT_FILE_DE"
+  fi
+
+  if [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ] && config_is_valid "$OLD_SAT_FILE"; then
+    ui_print "- Restoring installed module config: $OLD_SAT_FILE"
+    copy_to_module_config "$OLD_SAT_FILE" || write_default_de_config
+    return 0
+  fi
+
+  if [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
+    ui_print "! Ignoring invalid installed module config: $OLD_SAT_FILE"
+  fi
+
+  ui_print "- Creating module config (default $DEFAULT_SAT)"
+  write_default_de_config
+}
+
+# Keep permissions explicit for the files that Magisk executes or reads directly.
 set_installed_permissions() {
   ui_print "- Setting script permissions..."
   set_perm "$MODPATH/service.sh" 0 0 0755
@@ -85,46 +173,21 @@ set_installed_permissions
 
 # Sync configs with shared storage priority when both files exist
 if [ -f "$SAT_FILE_SD" ]; then
-  if [ -f "$SAT_FILE_DE" ]; then
-    ui_print "- Found module config: $SAT_FILE_DE"
+  if report_config_state "module" "$SAT_FILE_DE"; then
     ui_print "- Found shared config (priority): $SAT_FILE_SD"
-  elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
-    ui_print "- Found installed module config: $OLD_SAT_FILE"
+  elif report_config_state "installed module" "$OLD_SAT_FILE"; then
     ui_print "- Found shared config (priority): $SAT_FILE_SD"
   else
     ui_print "- Found shared config: $SAT_FILE_SD"
   fi
 
   if ! copy_to_module_config "$SAT_FILE_SD"; then
-    if [ -f "$SAT_FILE_DE" ]; then
-      ui_print "- Keeping existing module config: $SAT_FILE_DE"
-    elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
-      ui_print "- Restoring installed module config: $OLD_SAT_FILE"
-      copy_to_module_config "$OLD_SAT_FILE" || write_default_de_config
-    else
-      ui_print "- Creating module config (default $DEFAULT_SAT)"
-      write_default_de_config
-    fi
-  fi
-elif [ -f "$SAT_FILE_DE" ]; then
-  ui_print "- Found module config: $SAT_FILE_DE"
-  ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
-  copy_to_shared_config "$SAT_FILE_DE"
-elif [ -n "$OLD_SAT_FILE" ] && [ -f "$OLD_SAT_FILE" ]; then
-  ui_print "- Found installed module config: $OLD_SAT_FILE"
-  if copy_to_module_config "$OLD_SAT_FILE"; then
-    ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
-    copy_to_shared_config "$SAT_FILE_DE"
-  else
-    ui_print "- Creating module config (default $DEFAULT_SAT)"
-    if write_default_de_config; then
-      ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
-      copy_to_shared_config "$SAT_FILE_DE"
-    fi
+    ensure_valid_module_config
   fi
 else
-  ui_print "- Creating module config (default $DEFAULT_SAT)"
-  if write_default_de_config; then
+  report_config_state "module" "$SAT_FILE_DE" || report_config_state "installed module" "$OLD_SAT_FILE" || :
+
+  if ensure_valid_module_config; then
     ui_print "- Copying module config to shared storage: $SAT_FILE_SD"
     copy_to_shared_config "$SAT_FILE_DE"
   fi
