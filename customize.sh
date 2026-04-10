@@ -39,11 +39,13 @@ in_range() {
 config_is_valid() {
   cfg_path="$1"
   [ -s "$cfg_path" ] || return 1
+  [ -r "$cfg_path" ] || return 1
 
   cfg_value="$(read_first_line_trim "$cfg_path")"
   [ -n "$cfg_value" ] || return 1
   is_valid_float "$cfg_value" || return 1
   in_range "$cfg_value" || return 1
+  return 0
 }
 
 report_config_state() {
@@ -78,13 +80,26 @@ if [ -n "$MODID" ]; then
 fi
 
 write_default_de_config() {
-  if printf '%s\n' "$DEFAULT_SAT" > "$SAT_FILE_DE"; then
-    set_perm "$SAT_FILE_DE" 0 0 0600
-    return 0
+  wdd_tmp="${SAT_FILE_DE}.tmp.$$"
+  wdd_old_umask="$(umask)"
+
+  umask 0177
+  if ! printf '%s\n' "$DEFAULT_SAT" > "$wdd_tmp"; then
+    umask "$wdd_old_umask"
+    rm -f "$wdd_tmp" 2>/dev/null
+    ui_print "! Failed to write DE config: $SAT_FILE_DE"
+    return 1
+  fi
+  umask "$wdd_old_umask"
+
+  if ! mv -f "$wdd_tmp" "$SAT_FILE_DE" 2>/dev/null; then
+    rm -f "$wdd_tmp" 2>/dev/null
+    ui_print "! Failed to write DE config: $SAT_FILE_DE"
+    return 1
   fi
 
-  ui_print "! Failed to write DE config: $SAT_FILE_DE"
-  return 1
+  set_perm "$SAT_FILE_DE" 0 0 0600
+  return 0
 }
 
 copy_to_module_config() {
@@ -95,11 +110,13 @@ copy_to_module_config() {
     return 1
   fi
 
-  if cp -f "$src" "$SAT_FILE_DE"; then
+  cp_tmp="${SAT_FILE_DE}.tmp.$$"
+  if cp -f "$src" "$cp_tmp" && chmod 0600 "$cp_tmp" 2>/dev/null && mv -f "$cp_tmp" "$SAT_FILE_DE" 2>/dev/null; then
     set_perm "$SAT_FILE_DE" 0 0 0600
     return 0
   fi
 
+  rm -f "$cp_tmp" 2>/dev/null
   ui_print "! Failed to update module config from: $src"
   return 1
 }
@@ -117,11 +134,13 @@ copy_to_shared_config() {
     return 1
   fi
 
-  if cp -f "$src" "$SAT_FILE_SD"; then
+  cp_sd_tmp="${SAT_FILE_SD}.tmp.$$"
+  if cp -f "$src" "$cp_sd_tmp" && mv -f "$cp_sd_tmp" "$SAT_FILE_SD" 2>/dev/null; then
     chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
     return 0
   fi
 
+  rm -f "$cp_sd_tmp" 2>/dev/null
   ui_print "! Failed to update shared config: $SAT_FILE_SD"
   return 1
 }

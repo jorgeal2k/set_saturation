@@ -19,6 +19,7 @@ resolve_sdroot() {
 remove_user_config() {
   cfg_path="$1"
   [ -n "$cfg_path" ] || return 1
+  [ ! -L "$cfg_path" ] || return 1
   [ -f "$cfg_path" ] || return 0
   rm -f "$cfg_path"
 }

@@ -8,6 +8,10 @@
 # - Be "recovery-proof": config lives in /data/adb, which is typically available in recovery
 
 MODDIR="${0%/*}"
+case "$MODDIR" in
+  /*) ;;
+  *) MODDIR="/data/adb/modules/set_saturation" ;;
+esac
 
 # Shared storage resolution is duplicated on purpose across lifecycle scripts
 # to avoid coupling boot logic to an extra sourced helper.
@@ -58,11 +62,15 @@ read_first_line_trim() {
 write_de_value() {
   wd_value="$1"
   wd_tmp="${SAT_FILE_DE}.tmp.$$"
+  wd_old_umask="$(umask)"
 
+  umask 0177
   if ! printf '%s\n' "$wd_value" > "$wd_tmp"; then
+    umask "$wd_old_umask"
     rm -f "$wd_tmp" 2>/dev/null
     return 1
   fi
+  umask "$wd_old_umask"
 
   if ! chmod 0600 "$wd_tmp" 2>/dev/null; then
     rm -f "$wd_tmp" 2>/dev/null
@@ -203,8 +211,12 @@ ensure_de_file
 
 # Wait until SurfaceFlinger is actually running, then apply immediately.
 if wait_surfaceflinger; then
-  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1 || \
-    printf '%s\n' "saturation: apply failed at boot" >> "$MODDIR/error.log"
+  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1 || {
+    _log="$MODDIR/error.log"
+    _lines="$(wc -l < "$_log" 2>/dev/null)"
+    [ "${_lines:-0}" -gt 100 ] && printf '' > "$_log"
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "saturation: apply failed at boot" >> "$_log"
+  }
 fi
 
 # Try to sync from shared storage ASAP (some devices allow it early),
