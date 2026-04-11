@@ -20,6 +20,7 @@ resolve_sdroot() {
 }
 
 get_module_id() {
+  # Reads the module ID from $MODULE_PROP; must be called after MODULE_PROP is set.
   [ -f "$MODULE_PROP" ] || return 1
   sed -n 's/^id=//p' "$MODULE_PROP" | head -n 1
 }
@@ -37,6 +38,7 @@ in_range() {
 }
 
 config_is_valid() {
+  # Returns 0 if file exists, is readable, and contains a valid in-range float.
   cfg_path="$1"
   [ -s "$cfg_path" ] || return 1
   [ -r "$cfg_path" ] || return 1
@@ -49,6 +51,7 @@ config_is_valid() {
 }
 
 report_config_state() {
+  # Prints config state to installer output; returns 0 only if valid.
   cfg_label="$1"
   cfg_path="$2"
 
@@ -63,6 +66,7 @@ report_config_state() {
   return 1
 }
 
+# Paths
 SAT_FILE_DE="$MODPATH/saturation.cfg"
 DEFAULT_SAT="1.0"
 MIN_SAT="0.50"
@@ -78,6 +82,7 @@ if [ -n "$MODID" ]; then
 fi
 
 write_default_de_config() {
+  # Writes DEFAULT_SAT to DE config atomically (tmp → mv + set_perm).
   wdd_tmp="${SAT_FILE_DE}.tmp.$$"
   wdd_old_umask="$(umask)"
 
@@ -101,6 +106,7 @@ write_default_de_config() {
 }
 
 copy_to_module_config() {
+  # Validates src, then copies it atomically into DE config.
   src="$1"
 
   if ! config_is_valid "$src"; then
@@ -120,6 +126,7 @@ copy_to_module_config() {
 }
 
 copy_to_shared_config() {
+  # Validates src, then copies it to shared storage (best-effort).
   src="$1"
 
   if ! config_is_valid "$src"; then
@@ -144,6 +151,7 @@ copy_to_shared_config() {
 }
 
 ensure_valid_module_config() {
+  # Guarantees a valid DE config exists; priority: new > old installed > default.
   if [ -f "$SAT_FILE_DE" ] && config_is_valid "$SAT_FILE_DE"; then
     return 0
   fi
@@ -175,7 +183,7 @@ set_installed_permissions() {
 
 set_installed_permissions
 
-# Sync configs with shared storage priority when both files exist
+# SD config present: use it as source of truth. Otherwise bootstrap from module config.
 if [ -f "$SAT_FILE_SD" ]; then
   if report_config_state "module" "$SAT_FILE_DE" || report_config_state "installed module" "$OLD_SAT_FILE"; then
     ui_print "- Found shared config (priority): $SAT_FILE_SD"

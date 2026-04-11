@@ -17,6 +17,7 @@ resolve_sdroot() {
 }
 
 remove_user_config() {
+  # Removes a regular file at cfg_path; skips symlinks and non-existent paths.
   cfg_path="$1"
   [ -n "$cfg_path" ] || return 1
   [ ! -L "$cfg_path" ] || return 1
@@ -25,6 +26,7 @@ remove_user_config() {
 }
 
 remove_user_configs() {
+  # Removes all SD config copies; skips legacy/fallback paths if they resolve to the same file.
   sdroot="$(resolve_sdroot)"
   resolved_cfg="$sdroot/saturation.cfg"
 

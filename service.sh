@@ -3,9 +3,8 @@
 # Applies SurfaceFlinger color saturation from a DE (device-encrypted) config file.
 #
 # Goals:
-# - Apply saturation ASAP (no arbitrary delays like "sleep 2")
+# - Apply saturation ASAP (no unconditional delays; polls for readiness)
 # - Work before first unlock (FBE-safe) by using /data/adb
-# - Be "recovery-proof": config lives in /data/adb, which is typically available in recovery
 
 MODDIR="${0%/*}"
 case "$MODDIR" in
@@ -26,7 +25,7 @@ resolve_sdroot() {
 }
 
 # --- Paths ---
-# Root-only, recovery-friendly, FBE-safe config (authoritative)
+# DE config: root-only, FBE-safe, authoritative
 SAT_FILE_DE="$MODDIR/saturation.cfg"
 
 # Optional user-facing config (may be unavailable until first unlock on FBE devices)
@@ -50,16 +49,16 @@ is_valid_float() {
 }
 
 in_range() {
-  # awk is commonly available (toybox/box). Exit 0 if in range.
+  # Uses awk for float comparison (toybox-safe).
   awk -v x="$1" -v min="$MIN_SAT" -v max="$MAX_SAT" 'BEGIN{ exit !(x>=min && x<=max) }'
 }
 
 read_first_line_trim() {
-  # Read first line, strip whitespace
   head -n 1 "$1" 2>/dev/null | tr -d '[:space:]'
 }
 
 write_de_value() {
+  # Atomic write: write to tmp, chmod 0600, mv into place.
   wd_value="$1"
   wd_tmp="${SAT_FILE_DE}.tmp.$$"
   wd_old_umask="$(umask)"
@@ -99,8 +98,7 @@ ensure_de_file() {
 }
 
 wait_surfaceflinger() {
-  # Wait until SurfaceFlinger is running.
-  # No fixed delay; we just wait for readiness.
+  # Poll init.svc.surfaceflinger up to 30 s (1 s intervals).
   wf_i=0
   wf_max=30  # 30 * 1s = 30s max
 
@@ -115,8 +113,7 @@ wait_surfaceflinger() {
 }
 
 apply_value() {
-  # Apply saturation via binder service call
-  # Returns 0 on success
+  # Binder service call; retries up to 5 times on failure.
   av_i=0
   av_max=5  # 5 * 1s = 5s max
 
@@ -132,7 +129,6 @@ apply_value() {
 }
 
 apply_from_file() {
-  # Validate and apply saturation from a file
   af_file="$1"
   [ -s "$af_file" ] || return 1
 
@@ -160,6 +156,7 @@ sync_sd_to_de_if_possible() {
 }
 
 wait_for_boot_completed() {
+  # Poll sys.boot_completed up to 60 s; returns 1 on timeout.
   wfbc_i=0
   wfbc_max=60
 
@@ -176,6 +173,7 @@ wait_for_boot_completed() {
 }
 
 poll_user_config_sync() {
+  # Poll for a readable SD config up to 2 min; re-applies only if value changed.
   pcs_i=0
   pcs_max=60  # 60 * 2s = 2 minutes
 
@@ -197,16 +195,13 @@ poll_user_config_sync() {
 }
 
 reapply_after_boot() {
-  # SurfaceFlinger may reset its color matrix during its full initialization,
-  # undoing an early application. Re-apply once boot is stable to guarantee
-  # the setting persists.
+  # SurfaceFlinger may reset its color matrix during init; re-apply once boot is stable.
   apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
 }
 
 sync_shared_config_after_boot_window() {
-  # Prefer boot_completed when the ROM reports it, but still keep the sync attempt
-  # for the same bounded window on devices where that property is unreliable.
-  wait_for_boot_completed || :
+  # Wait for boot_completed (or timeout), re-apply saturation, then sync SD config.
+  wait_for_boot_completed || :  # continue even if boot_completed never fires
 
   # Re-apply unconditionally: SurfaceFlinger may have reset its color matrix
   # during its own initialization after we applied early.
@@ -228,11 +223,7 @@ if wait_surfaceflinger; then
   }
 fi
 
-# Try to sync from shared storage ASAP (some devices allow it early),
-# otherwise keep checking for a while until it becomes readable post-unlock.
-# This does NOT block applying early saturation, it only improves future boots.
-# Wait for boot to complete before polling when possible.
-# Timeout avoids waiting forever on ROMs that never report boot_completed=1.
+# Wait for boot, re-apply, and sync SD config (non-blocking; improves future boots).
 sync_shared_config_after_boot_window
 
 exit 0
