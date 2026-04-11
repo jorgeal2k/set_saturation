@@ -70,9 +70,7 @@ MAX_SAT="2.00"
 MODULE_PROP="$MODPATH/module.prop"
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
-MODID=""
 OLD_SAT_FILE=""
-
 MODID="$(get_module_id)"
 
 if [ -n "$MODID" ]; then
@@ -179,9 +177,7 @@ set_installed_permissions
 
 # Sync configs with shared storage priority when both files exist
 if [ -f "$SAT_FILE_SD" ]; then
-  if report_config_state "module" "$SAT_FILE_DE"; then
-    ui_print "- Found shared config (priority): $SAT_FILE_SD"
-  elif report_config_state "installed module" "$OLD_SAT_FILE"; then
+  if report_config_state "module" "$SAT_FILE_DE" || report_config_state "installed module" "$OLD_SAT_FILE"; then
     ui_print "- Found shared config (priority): $SAT_FILE_SD"
   else
     ui_print "- Found shared config: $SAT_FILE_SD"

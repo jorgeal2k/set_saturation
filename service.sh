@@ -142,8 +142,7 @@ apply_from_file() {
   is_valid_float "$af_val" || return 1
   in_range "$af_val" || return 1
 
-  apply_value "$af_val" || return 1
-  return 0
+  apply_value "$af_val"
 }
 
 sync_sd_to_de_if_possible() {
@@ -157,20 +156,19 @@ sync_sd_to_de_if_possible() {
   is_valid_float "$sd_v" || return 1
   in_range "$sd_v" || return 1
 
-  write_de_value "$sd_v" || return 1
-  return 0
+  write_de_value "$sd_v"
 }
 
 wait_for_boot_completed() {
-  i=0
-  max_wait_boot=60
+  wfbc_i=0
+  wfbc_max=60
 
-  while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt "$max_wait_boot" ]; do
+  while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$wfbc_i" -lt "$wfbc_max" ]; do
     sleep 1
-    i=$((i+1))
+    wfbc_i=$((wfbc_i+1))
   done
 
-  if [ "$i" -lt "$max_wait_boot" ]; then
+  if [ "$wfbc_i" -lt "$wfbc_max" ]; then
     return 0
   fi
 
@@ -178,10 +176,10 @@ wait_for_boot_completed() {
 }
 
 poll_user_config_sync() {
-  i=0
-  max=60  # 60 * 2s = 2 minutes
+  pcs_i=0
+  pcs_max=60  # 60 * 2s = 2 minutes
 
-  while [ "$i" -lt "$max" ]; do
+  while [ "$pcs_i" -lt "$pcs_max" ]; do
     old_de="$(read_first_line_trim "$SAT_FILE_DE" 2>/dev/null)"
     if sync_sd_to_de_if_possible; then
       new_de="$(read_first_line_trim "$SAT_FILE_DE" 2>/dev/null)"
@@ -192,7 +190,7 @@ poll_user_config_sync() {
       return 0
     fi
     sleep 2
-    i=$((i+1))
+    pcs_i=$((pcs_i+1))
   done
 
   return 1
