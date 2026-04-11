@@ -198,10 +198,21 @@ poll_user_config_sync() {
   return 1
 }
 
+reapply_after_boot() {
+  # SurfaceFlinger may reset its color matrix during its full initialization,
+  # undoing an early application. Re-apply once boot is stable to guarantee
+  # the setting persists.
+  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
+}
+
 sync_shared_config_after_boot_window() {
   # Prefer boot_completed when the ROM reports it, but still keep the sync attempt
   # for the same bounded window on devices where that property is unreliable.
   wait_for_boot_completed || :
+
+  # Re-apply unconditionally: SurfaceFlinger may have reset its color matrix
+  # during its own initialization after we applied early.
+  reapply_after_boot
 
   poll_user_config_sync
 }
