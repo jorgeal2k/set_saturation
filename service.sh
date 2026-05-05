@@ -1,4 +1,6 @@
 #!/system/bin/sh
+# shellcheck shell=sh
+
 # Magisk service script (late_start service)
 # Applies SurfaceFlinger color saturation from a DE (device-encrypted) config file.
 #

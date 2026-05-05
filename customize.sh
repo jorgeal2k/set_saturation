@@ -1,4 +1,6 @@
 #!/system/bin/sh
+# shellcheck shell=sh
+
 # customize.sh — Magisk module installer script
 
 ui_print " "

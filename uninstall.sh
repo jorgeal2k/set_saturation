@@ -1,4 +1,6 @@
 #!/system/bin/sh
+# shellcheck shell=sh
+
 # uninstall.sh — cleanup on module removal
 
 LEGACY_SD_CFG="/data/media/0/saturation.cfg"
