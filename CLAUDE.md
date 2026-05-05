@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Guía de trabajo para agentes de código que modifiquen, auditen o creen módulos Android root compatibles con **Magisk** y **KernelSU**.
 
@@ -484,6 +484,93 @@ META-INF/
 No todos los módulos necesitan todos los scripts.
 
 Añade helpers solo si reducen duplicación o riesgo. Duplica lógica simple entre fases si compartir un helper aumenta el riesgo durante instalación, arranque o desinstalación.
+
+### Patrón: helper compartido entre fases
+
+Cuando varias fases del módulo comparten lógica estable, un único archivo
+`common.sh` sourced puede reducir el drift silencioso entre `customize.sh` y
+`service.sh`. El patrón solo es seguro bajo condiciones concretas.
+
+**Cuándo aplicarlo (todas deben cumplirse):**
+
+- Hay duplicación real entre dos o más fases, no entre helpers triviales de una sola línea.
+- El código duplicado es **estable**: validadores, constantes de rango, parsers simples. No lógica que dependa del entorno de fase (permisos, `set_perm`, `ui_print`, `umask`).
+- El fallo de carga del helper es **recuperable**: en el peor caso una fase no se ejecuta, sin riesgo de bootloop ni de corrupción.
+
+**Cuándo NO aplicarlo:**
+
+- `uninstall.sh` casi nunca debe sourcear: se ejecuta en el momento más frágil del ciclo y debe poder limpiar incluso si el resto del módulo está roto.
+- Funciones que difieren por fase aunque parezcan iguales: escritura atómica con `set_perm` (instalación) vs. `chmod` (arranque). La unificación oculta los matices y aumenta el riesgo.
+- Helpers que deban reportar el propio fallo del helper (paradoja): el logger inicial debe quedar inline.
+
+**Qué incluir típicamente:**
+
+- Constantes de rango y valores por defecto.
+- Validadores puros: `is_valid_float`, `in_range`, `read_first_line_trim`.
+- Cualquier helper sin efectos secundarios y estable a través de fases.
+
+**Qué excluir típicamente:**
+
+- `resolve_sdroot` y similares: se necesitan también en `uninstall.sh`, que conviene mantener autónomo.
+- Funciones con I/O sensible a permisos (`umask`, `set_perm`, `chmod`).
+- Funciones que dependan de helpers exclusivos de una fase (`ui_print`, `abort` solo en instalación).
+
+**Carga y manejo de fallo:**
+
+- Sourcear con guarda y aborto limpio. **Nunca** fallback inline (volvería a duplicar exactamente lo que se intenta evitar).
+- En instalación: `ui_print` + `abort` del gestor root.
+- En arranque: log corto en `$MODDIR/error.log` (rotado) y `exit 0` para no marcar el service como crash.
+- El helper de logging debe ser **inline**, antes del sourcing.
+
+**Empaquetado y permisos:**
+
+- Helper en la raíz del módulo, sin shebang (es sourced, no ejecutable).
+- `0644 root:root` aplicado en `customize.sh` vía `set_perm`.
+- Incluido en el zip instalable.
+- `# shellcheck shell=sh` y `# shellcheck disable=SC2034` para constantes compartidas (shellcheck no puede ver consumidores al lintar el helper en aislamiento).
+
+**Esqueleto mínimo:**
+
+`common.sh` (sourced desde `customize.sh` y `service.sh`; no desde `uninstall.sh`):
+
+```sh
+# shellcheck shell=sh
+# shellcheck disable=SC2034
+MIN_VAL="0.50"
+MAX_VAL="2.00"
+DEFAULT_VAL="1.0"
+
+is_valid_float() {
+  printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
+}
+```
+
+Carga desde `customize.sh`:
+
+```sh
+# shellcheck source=common.sh
+if ! . "$MODPATH/common.sh" 2>/dev/null; then
+  ui_print "! Failed to load common.sh"
+  abort   "! Aborting install"
+fi
+```
+
+Carga desde `service.sh` (con logger inline previo):
+
+```sh
+log_error() {
+  _log="$MODDIR/error.log"
+  _lines="$(wc -l < "$_log" 2>/dev/null)"
+  [ "${_lines:-0}" -gt 100 ] && printf '' > "$_log"
+  printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$_log"
+}
+
+# shellcheck source=common.sh
+if ! . "$MODDIR/common.sh" 2>/dev/null; then
+  log_error "common.sh missing or unloadable; aborting service"
+  exit 0
+fi
+```
 
 ---
 
