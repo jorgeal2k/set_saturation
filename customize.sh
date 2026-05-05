@@ -27,18 +27,6 @@ get_module_id() {
   sed -n 's/^id=//p' "$MODULE_PROP" | head -n 1
 }
 
-read_first_line_trim() {
-  head -n 1 "$1" 2>/dev/null | tr -d '[:space:]'
-}
-
-is_valid_float() {
-  printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
-}
-
-in_range() {
-  awk -v x="$1" -v min="$MIN_SAT" -v max="$MAX_SAT" 'BEGIN{ exit !(x>=min && x<=max) }'
-}
-
 config_is_valid() {
   # Returns 0 if file exists, is readable, and contains a valid in-range float.
   cfg_path="$1"
@@ -70,14 +58,18 @@ report_config_state() {
 
 # Paths
 SAT_FILE_DE="$MODPATH/saturation.cfg"
-DEFAULT_SAT="1.0"
-MIN_SAT="0.50"
-MAX_SAT="2.00"
 MODULE_PROP="$MODPATH/module.prop"
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
 OLD_SAT_FILE=""
 MODID="$(get_module_id)"
+
+# Load shared helpers (constants and validators). Abort cleanly if missing or unloadable.
+# shellcheck source=common.sh
+if ! . "$MODPATH/common.sh" 2>/dev/null; then
+  ui_print "! Failed to load common.sh"
+  abort   "! Aborting install"
+fi
 
 if [ -n "$MODID" ]; then
   OLD_SAT_FILE="/data/adb/modules/$MODID/saturation.cfg"
@@ -181,6 +173,7 @@ set_installed_permissions() {
   ui_print "- Setting script permissions..."
   set_perm "$MODPATH/service.sh" 0 0 0755
   set_perm "$MODPATH/module.prop" 0 0 0644
+  set_perm "$MODPATH/common.sh" 0 0 0644
 }
 
 set_installed_permissions

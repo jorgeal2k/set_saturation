@@ -14,6 +14,22 @@ case "$MODDIR" in
   *) MODDIR="/data/adb/modules/set_saturation" ;;
 esac
 
+# Inline log helper: must stay here so we can report a failed common.sh load
+# without depending on common.sh itself.
+log_error() {
+  _log="$MODDIR/error.log"
+  _lines="$(wc -l < "$_log" 2>/dev/null)"
+  [ "${_lines:-0}" -gt 100 ] && printf '' > "$_log"
+  printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$_log"
+}
+
+# Load shared helpers (constants and validators). Abort cleanly if missing.
+# shellcheck source=common.sh
+if ! . "$MODDIR/common.sh" 2>/dev/null; then
+  log_error "common.sh missing or unloadable; aborting service"
+  exit 0
+fi
+
 # Shared storage resolution is duplicated on purpose across lifecycle scripts
 # to avoid coupling boot logic to an extra sourced helper.
 resolve_sdroot() {
@@ -37,27 +53,6 @@ SAT_FILE_SD="$SDROOT/saturation.cfg"
 # --- SurfaceFlinger saturation service call ---
 SF_SERVICE="SurfaceFlinger"
 SAT_CODE="1022"
-
-# --- Safety bounds ---
-# Keep these conservative to avoid extreme color distortion
-MIN_SAT="0.50"
-MAX_SAT="2.00"
-DEFAULT_SAT="1.0"
-
-# --- Helpers ---
-is_valid_float() {
-  # Accepts: 1, 1.0, 0.75, 2.00 (no negatives, no exponent)
-  printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
-}
-
-in_range() {
-  # Uses awk for float comparison (toybox-safe).
-  awk -v x="$1" -v min="$MIN_SAT" -v max="$MAX_SAT" 'BEGIN{ exit !(x>=min && x<=max) }'
-}
-
-read_first_line_trim() {
-  head -n 1 "$1" 2>/dev/null | tr -d '[:space:]'
-}
 
 write_de_value() {
   # Atomic write: write to tmp, chmod 0600, mv into place.
@@ -217,12 +212,8 @@ ensure_de_file
 
 # Wait until SurfaceFlinger is actually running, then apply immediately.
 if wait_surfaceflinger; then
-  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1 || {
-    _log="$MODDIR/error.log"
-    _lines="$(wc -l < "$_log" 2>/dev/null)"
-    [ "${_lines:-0}" -gt 100 ] && printf '' > "$_log"
-    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "saturation: apply failed at boot" >> "$_log"
-  }
+  apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1 \
+    || log_error "saturation: apply failed at boot"
 fi
 
 # Wait for boot, re-apply, and sync SD config (non-blocking; improves future boots).
