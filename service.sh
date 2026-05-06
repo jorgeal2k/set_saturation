@@ -11,7 +11,7 @@
 MODDIR="${0%/*}"
 case "$MODDIR" in
   /*) ;;
-  *) MODDIR="/data/adb/modules/set_saturation" ;;
+  *) MODDIR="/data/adb/modules/set_saturation_boot" ;;
 esac
 
 # Inline log helper: must stay here so we can report a failed common.sh load
