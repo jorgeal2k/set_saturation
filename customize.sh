@@ -9,18 +9,6 @@ ui_print " Set Saturation after System boot"
 ui_print "========================================"
 ui_print " "
 
-# Shared storage resolution is duplicated on purpose across lifecycle scripts
-# to avoid introducing a new sourced dependency into the installer path.
-resolve_sdroot() {
-  if [ -n "$EXTERNAL_STORAGE" ] && [ -d "$EXTERNAL_STORAGE" ]; then
-    printf '%s\n' "$EXTERNAL_STORAGE"
-  elif [ -d "/data/media/0" ]; then
-    printf '%s\n' "/data/media/0"
-  else
-    printf '%s\n' "/sdcard"
-  fi
-}
-
 get_module_id() {
   # Reads the module ID from $MODULE_PROP; must be called after MODULE_PROP is set.
   [ -f "$MODULE_PROP" ] || return 1
@@ -59,8 +47,6 @@ report_config_state() {
 # Paths
 SAT_FILE_DE="$MODPATH/saturation.cfg"
 MODULE_PROP="$MODPATH/module.prop"
-SDROOT="$(resolve_sdroot)"
-SAT_FILE_SD="$SDROOT/saturation.cfg"
 OLD_SAT_FILE=""
 MODID="$(get_module_id)"
 
@@ -70,6 +56,9 @@ if ! . "$MODPATH/common.sh" 2>/dev/null; then
   ui_print "! Failed to load common.sh"
   abort   "! Aborting install"
 fi
+
+SDROOT="$(resolve_sdroot)"
+SAT_FILE_SD="$SDROOT/saturation.cfg"
 
 if [ -n "$MODID" ]; then
   OLD_SAT_FILE="/data/adb/modules/$MODID/saturation.cfg"
@@ -171,6 +160,7 @@ ensure_valid_module_config() {
 # Keep permissions explicit for the files that Magisk executes or reads directly.
 set_installed_permissions() {
   ui_print "- Setting script permissions..."
+  set_perm "$MODPATH/customize.sh" 0 0 0755
   set_perm "$MODPATH/service.sh" 0 0 0755
   set_perm "$MODPATH/module.prop" 0 0 0644
   set_perm "$MODPATH/common.sh" 0 0 0644

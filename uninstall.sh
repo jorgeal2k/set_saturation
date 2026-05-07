@@ -53,5 +53,5 @@ remove_user_configs() {
 # Remove only module-owned user-facing config copies.
 remove_user_configs
 
-# Note: $MODDIR/saturation.cfg is automatically removed by Magisk
-# when it deletes the module directory.
+# Note: saturation.cfg dentro del directorio del módulo es eliminado
+# automáticamente por Magisk al borrar el directorio del módulo.

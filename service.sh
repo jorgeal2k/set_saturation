@@ -19,7 +19,7 @@ esac
 log_error() {
   _log="$MODDIR/error.log"
   _lines="$(wc -l < "$_log" 2>/dev/null)"
-  [ "${_lines:-0}" -gt 100 ] && printf '' > "$_log"
+  [ $(( _lines + 0 )) -gt 100 ] && printf '' > "$_log"
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$_log"
 }
 
@@ -29,18 +29,6 @@ if ! . "$MODDIR/common.sh" 2>/dev/null; then
   log_error "common.sh missing or unloadable; aborting service"
   exit 0
 fi
-
-# Shared storage resolution is duplicated on purpose across lifecycle scripts
-# to avoid coupling boot logic to an extra sourced helper.
-resolve_sdroot() {
-  if [ -n "$EXTERNAL_STORAGE" ] && [ -d "$EXTERNAL_STORAGE" ]; then
-    printf '%s\n' "$EXTERNAL_STORAGE"
-  elif [ -d "/data/media/0" ]; then
-    printf '%s\n' "/data/media/0"
-  else
-    printf '%s\n' "/sdcard"
-  fi
-}
 
 # --- Paths ---
 # DE config: root-only, FBE-safe, authoritative

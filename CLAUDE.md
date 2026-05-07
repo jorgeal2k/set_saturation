@@ -511,7 +511,7 @@ Cuando varias fases del módulo comparten lógica estable, un único archivo
 
 **Qué excluir típicamente:**
 
-- `resolve_sdroot` y similares: se necesitan también en `uninstall.sh`, que conviene mantener autónomo.
+- `resolve_sdroot` en `uninstall.sh`: mantiene autónomo por ser la fase más frágil; las otras fases lo obtienen desde `common.sh`.
 - Funciones con I/O sensible a permisos (`umask`, `set_perm`, `chmod`).
 - Funciones que dependan de helpers exclusivos de una fase (`ui_print`, `abort` solo en instalación).
 
