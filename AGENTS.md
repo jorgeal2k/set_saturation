@@ -1,3 +1,3 @@
 # AGENTS.md
 
-See CLAUDE.md for the canonical project instructions.
+See @CLAUDE.md for the canonical project instructions.
