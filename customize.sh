@@ -125,6 +125,13 @@ copy_to_shared_config() {
   cp_sd_tmp="${SAT_FILE_SD}.tmp.$$"
   if cp -f "$src" "$cp_sd_tmp" && mv -f "$cp_sd_tmp" "$SAT_FILE_SD" 2>/dev/null; then
     chmod 0644 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chmod: $SAT_FILE_SD"
+    # When writing directly to /data/media (bypassing FUSE/MediaProvider), the
+    # file must belong to media_rw (1023) or user apps may not see or edit it.
+    case "$SDROOT" in
+      /data/media/*)
+        chown 1023:1023 "$SAT_FILE_SD" 2>/dev/null || ui_print "! Failed to chown: $SAT_FILE_SD"
+        ;;
+    esac
     return 0
   fi
 

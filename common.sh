@@ -19,9 +19,13 @@ _ir_to_int() {
   _ir_dec_part="${1#*.}"
   [ "$_ir_dec_part" = "$_ir_int_part" ] && _ir_dec_part="00"
   _ir_dec_part="$(printf '%-2s' "$_ir_dec_part" | tr ' ' '0' | cut -c1-2)"
-  # Strip leading zeros to avoid octal interpretation (pure POSIX).
-  while [ "${_ir_dec_part}" != "0" ] && [ "${_ir_dec_part#"${_ir_dec_part#?}"}" = "$_ir_dec_part" ] && [ "${_ir_dec_part%"${_ir_dec_part%?}"}" != "$_ir_dec_part" ]; do
-    _ir_dec_part="${_ir_dec_part#0}"
+  # Strip leading zeros to avoid octal interpretation in $(( )) (pure POSIX).
+  # "0?*" requires at least two chars, so a lone "0" is always preserved.
+  while :; do
+    case "$_ir_dec_part" in
+      0?*) _ir_dec_part="${_ir_dec_part#0}" ;;
+      *)   break ;;
+    esac
   done
   printf '%d' "$((_ir_int_part * 100 + _ir_dec_part))"
 }

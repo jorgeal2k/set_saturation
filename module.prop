@@ -1,6 +1,6 @@
 id=set_saturation_boot
 name=Set Saturation at boot
-version=1.06
-versionCode=106
+version=1.07
+versionCode=107
 author=jorge2k
 description=Applies SurfaceFlinger color saturation at boot and syncs saturation.cfg during install between the module folder and /sdcard, giving priority to /sdcard/saturation.cfg when both exist.
