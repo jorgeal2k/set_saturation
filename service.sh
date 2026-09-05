@@ -34,6 +34,9 @@ fi
 # DE config: root-only, FBE-safe, authoritative
 SAT_FILE_DE="$MODDIR/saturation.cfg"
 
+# Claim marker for the post-boot stage (see claim_post_boot)
+POSTBOOT_LOCK="$MODDIR/.postboot.lock"
+
 # Optional user-facing config (may be unavailable until first unlock on FBE devices)
 SDROOT="$(resolve_sdroot)"
 SAT_FILE_SD="$SDROOT/saturation.cfg"
@@ -184,10 +187,16 @@ reapply_after_boot() {
   apply_from_file "$SAT_FILE_DE" >/dev/null 2>&1
 }
 
-sync_shared_config_after_boot_window() {
-  # Wait for boot_completed (or timeout), re-apply saturation, then sync SD config.
-  wait_for_boot_completed || :  # continue even if boot_completed never fires
+claim_post_boot() {
+  # Atomic claim so the post-boot work runs exactly once per boot, whether it
+  # is reached through boot-completed.sh (KernelSU) or through the service.sh
+  # fallback (Magisk). mkdir either creates the directory or fails, atomically,
+  # so exactly one caller can win.
+  mkdir "$POSTBOOT_LOCK" 2>/dev/null
+}
 
+run_post_boot() {
+  # Post-boot work: re-apply saturation, then try to sync the user config.
   # Re-apply unconditionally: SurfaceFlinger may have reset its color matrix
   # during its own initialization after we applied early.
   reapply_after_boot
@@ -196,6 +205,25 @@ sync_shared_config_after_boot_window() {
 }
 
 # --- Main ---
+
+# Post-boot entry point, used by boot-completed.sh on root managers that
+# provide that stage. The early-boot work below has already run by then.
+if [ "$1" = "post-boot" ]; then
+  claim_post_boot || exit 0
+  # Re-validate: normally service.sh already did this at late_start, but the
+  # post-boot stage must not depend on that having succeeded.
+  ensure_de_file
+  run_post_boot
+  exit 0
+fi
+
+# Drop a claim left behind by the previous boot. As a late_start service this
+# always runs before sys.boot_completed, so it cannot race boot-completed.sh.
+rmdir "$POSTBOOT_LOCK" 2>/dev/null
+# Defensive: if anything left a non-directory in its place, mkdir would keep
+# failing and the post-boot stage would never run again. Fixed path, no glob.
+[ -e "$POSTBOOT_LOCK" ] && rm -f "$POSTBOOT_LOCK" 2>/dev/null
+
 ensure_de_file
 
 # Wait until SurfaceFlinger is actually running, then apply immediately.
@@ -204,7 +232,12 @@ if wait_surfaceflinger; then
     || log_error "saturation: apply failed at boot"
 fi
 
-# Wait for boot, re-apply, and sync SD config (non-blocking; improves future boots).
-sync_shared_config_after_boot_window
+# Fallback post-boot path for managers without a boot-completed stage (Magisk).
+# On KernelSU boot-completed.sh usually claims first and this exits right away.
+wait_for_boot_completed || :  # continue even if boot_completed never fires
+
+if claim_post_boot; then
+  run_post_boot
+fi
 
 exit 0
