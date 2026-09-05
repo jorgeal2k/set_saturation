@@ -48,6 +48,10 @@ El servicio también intenta sincronizar y reaplicar cuando el sistema termina d
 4. Tras `boot_completed`, reaplica (por posibles reseteos de la ROM/servicio).
 5. Intenta sincronizar desde `/sdcard/saturation.cfg` si aparece luego del desbloqueo.
 
+Los pasos 4 y 5 se ejecutan una sola vez por arranque, se alcancen desde
+`boot-completed.sh` (KernelSU y derivados, que disponen de esa fase) o desde el
+camino de reserva de `service.sh` (Magisk, que no la tiene).
+
 ## Desinstalación
 - `uninstall.sh` **no borra** intencionalmente `/sdcard/saturation.cfg` para preservar la configuración del usuario.
 - La configuración interna del módulo se elimina junto al módulo por el gestor root.
@@ -56,6 +60,7 @@ El servicio también intenta sincronizar y reaplicar cuando el sistema termina d
 - `module.prop`: metadatos del módulo.
 - `customize.sh`: lógica de instalación y sincronización inicial.
 - `service.sh`: aplicación en boot y sincronización tardía.
+- `boot-completed.sh`: fase post-boot en gestores que la soportan; delega en `service.sh`.
 - `common.sh`: validación de valores y helpers compartidos.
 - `uninstall.sh`: limpieza conservadora al desinstalar.
 

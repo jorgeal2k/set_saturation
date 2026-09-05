@@ -164,11 +164,15 @@ ensure_valid_module_config() {
   write_default_de_config
 }
 
-# Keep permissions explicit for the files that Magisk executes or reads directly.
+# Keep permissions explicit for the files that the root manager executes or
+# reads directly. boot-completed.sh is only run by managers that provide that
+# stage (KernelSU and forks); Magisk ignores it, but it still needs to be
+# executable because service.sh is exec'd from it.
 set_installed_permissions() {
   ui_print "- Setting script permissions..."
   set_perm "$MODPATH/customize.sh" 0 0 0755
   set_perm "$MODPATH/service.sh" 0 0 0755
+  set_perm "$MODPATH/boot-completed.sh" 0 0 0755
   set_perm "$MODPATH/module.prop" 0 0 0644
   set_perm "$MODPATH/common.sh" 0 0 0644
 }
